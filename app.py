@@ -1,97 +1,85 @@
 import streamlit as st
-import requests
+from notion_client import Client
+from datetime import datetime
+import os
 
-# URL of your Google Cloud Function
-url = "https://us-central1-alexberishltd.cloudfunctions.net/function-1"
+# Get Notion API token from environment variables
+notion_token = os.getenv("NOTION_API_TOKEN")
 
-def submit_form(data):
-    response = requests.post(url, json=data)
-    return response
+# Initialize the Notion client
+notion = Client(auth=notion_token)
 
-st.title("Music Lesson Enquiry Form")
+# Notion database IDs
+teachers_db_id = "9f0e4ffc7c1449b1915ebd199e2d9655"
+students_db_id = "83219e99ee3b4866a3f88c491a7d76c0"
+tasks_db_id = "e058d21ab92d43a1bb44f173dff5d578"
 
-with st.form(key='music_lesson_form'):
-    # Name fields
-    st.subheader("Name (required)")
-    first_name = st.text_input("First Name", placeholder="Enter your first name")
-    last_name = st.text_input("Last Name", placeholder="Enter your last name (optional)", value="")
+# Function to get data from Notion database
+def get_database_entries(database_id):
+    response = notion.databases.query(database_id=database_id)
+    return response['results']
 
-    # Email field
-    st.subheader("Email (required)")
-    email = st.text_input("Email", placeholder="Enter your email")
+# Function to create a new task in Notion
+def create_task_in_notion(task_name, subtasks):
+    task_page = notion.pages.create(parent={"database_id": tasks_db_id},
+                                    properties={
+                                        "Name": {
+                                            "title": [
+                                                {
+                                                    "text": {
+                                                        "content": task_name
+                                                    }
+                                                }
+                                            ]
+                                        }
+                                    })
 
-    # Phone number field
-    st.subheader("Phone Number (required)")
-    phone_number = st.text_input("Phone Number", placeholder="Enter your phone number")
+    for subtask in subtasks:
+        notion.pages.create(parent={"page_id": task_page['id']},
+                            properties={
+                                "Name": {
+                                    "title": [
+                                        {
+                                            "text": {
+                                                "content": subtask
+                                            }
+                                        }
+                                    ]
+                                }
+                            })
 
-    # Lesson types checkboxes
-    st.subheader("Music Lesson Type/s (required)")
-    st.write("What do you want to learn?")
-    lesson_types = st.multiselect(
-        '',
-        [
-            "Acoustic Guitar", "Electric Guitar", "Bass Guitar", 
-            "Piano / Keyboard", "Voice (contemporary or classical)", 
-            "Drums", "Cello", "Clarinet", "Flute", "Violin", 
-            "Songwriting", "Saxophone", "Music production", 
-            "Guitar for Singers & Songwriters", "Duo / Group Lessons", 
-            "Bands / Ensemble Participation"
-        ]
-    )
+# Streamlit UI
+st.title("Notion Task and Subtask Creator")
 
-    # Student type field
-    st.subheader("Student Type (required)")
-    student_type = st.selectbox(
-        '',
-        ["", "Child Student (under 18)", "Adult Student (over 18)"],
-        format_func=lambda x: "Select an option" if x == "" else x
-    )
+# Display loading spinner
+with st.spinner('Fetching teachers data...'):
+    teachers_data = get_database_entries(teachers_db_id)
 
-    # Level field
-    st.subheader("Level")
-    level = st.selectbox(
-        '',
-        ["", "Beginner", "Intermediate", "Advanced"],
-        format_func=lambda x: "Select an option" if x == "" else x
-    )
+# Extract teacher names for dropdown
+teacher_names = [teacher['properties']['Name']['title'][0]['text']['content'] for teacher in teachers_data]
 
-    # Message field
-    st.subheader("Message (required)")
-    st.write("Tell us more about you! Include any relevant experience you have with music or your chosen instrument, preferred styles, etc.")
-    message = st.text_area("Message", placeholder="Enter your message here")
+# Select Teacher Dropdown
+selected_teacher = st.selectbox("Select Teacher", teacher_names)
 
-    # How did you hear about us field
-    st.subheader("How did you hear about us? (required)")
-    how_heard = st.multiselect(
-        '',
-        [
-            "Google/search engine", "Social media", 
-            "Family/friend referral", 
-            "Walked past us on the street!"
-        ]
-    )
+# Date Picker for absence date
+absence_date = st.date_input("Select Date of Absence")
 
-    # Submit button
-    submit_button = st.form_submit_button(label='Submit')
+# Create Tasks button
+if st.button("Create Tasks"):
+    with st.spinner('Creating tasks and subtasks...'):
+        # Fetch students data
+        students_data = get_database_entries(students_db_id)
+        subtasks = []
 
-if submit_button:
-    if not (first_name and email and phone_number and lesson_types and student_type and message and how_heard):
-        st.error("Please fill out all required fields.")
-    else:
-        data = {
-            "firstName": first_name,
-            "lastName": last_name,
-            "email": email,
-            "phoneNumber": phone_number,
-            "lessonTypes": ", ".join(lesson_types),  # Joining multiple selections
-            "studentType": student_type,
-            "level": level,
-            "message": message,
-            "howHeard": ", ".join(how_heard)  # Joining multiple selections
-        }
-        response = submit_form(data)
+        for student in students_data:
+            main_teacher = student['properties']['Main Teacher']['select']['name']
+            next_lesson = student['properties']['Next Lesson']['date']['start']
 
-        if response.status_code == 200:
-            st.success("Form submitted successfully!")
-        else:
-            st.error(f"Error submitting form: {response.json()}")
+            if main_teacher == selected_teacher and next_lesson == str(absence_date):
+                student_name = student['properties']['Name']['title'][0]['text']['content']
+                subtasks.append(student_name)
+
+        # Create task and subtasks in Notion
+        create_task_in_notion(selected_teacher, subtasks)
+
+    st.success('Tasks and subtasks created successfully!')
