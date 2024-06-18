@@ -36,7 +36,7 @@ def get_database_entries(database_id):
                 database_id=database_id, start_cursor=start_cursor
             )
             results.extend(response["results"])
-            has_more = response.get("has/eipgmore", False)
+            has_more = response.get("has_more", False)
             start_cursor = response.get("next_cursor", None)
         except APIResponseError as e:
             st.error(f"Failed to fetch data from Notion: {e}")
@@ -166,10 +166,14 @@ if teachers_data:
                                 "text"
                             ]["content"]
                             subtasks.append({"name": student_name, "id": student["id"]})
-                    except (AttributeError, KeyError, TypeError):
+                    except (AttributeError, KeyError, TypeError) as e:
+                        st.write(f"Skipping a student due to error: {e}")
                         continue
 
                 if subtasks:
+                    # Print out debug information for subtasks
+                    st.write("Subtasks to be created:", subtasks)
+
                     # Create task and subtasks in Notion
                     create_task_in_notion(
                         f"{selected_teacher} - {absence_date}", subtasks
