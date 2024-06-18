@@ -24,14 +24,25 @@ students_db_id = "83219e99ee3b4866a3f88c491a7d76c0"
 tasks_db_id = "1854209ee0d44027a3a18c9fa63016db"
 
 
-# Function to get data from Notion database
+# Function to get data from Notion database with pagination
 def get_database_entries(database_id):
-    try:
-        response = notion.databases.query(database_id=database_id)
-        return response["results"]
-    except APIResponseError as e:
-        st.error(f"Failed to fetch data from Notion: {e}")
-        return []
+    results = []
+    has_more = True
+    start_cursor = None
+
+    while has_more:
+        try:
+            response = notion.databases.query(
+                database_id=database_id, start_cursor=start_cursor
+            )
+            results.extend(response["results"])
+            has_more = response.get("has/eipgmore", False)
+            start_cursor = response.get("next_cursor", None)
+        except APIResponseError as e:
+            st.error(f"Failed to fetch data from Notion: {e}")
+            break
+
+    return results
 
 
 # Function to create a new task in Notion
