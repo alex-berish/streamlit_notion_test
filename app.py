@@ -6,6 +6,7 @@ import dotenv
 import pytz
 
 # Load environment variables
+print("Loading environment variables...")
 dotenv.load_dotenv()
 notion_token = os.getenv("NOTION_TOKEN")
 
@@ -15,17 +16,22 @@ if not notion_token:
     )
     st.stop()
 
+print("Environment variables loaded successfully.")
+print(f"Notion token: {'Set' if notion_token else 'Not set'}")
+
 # Initialize the Notion client
+print("Initializing Notion client...")
 notion = Client(auth=notion_token)
+print("Notion client initialized.")
 
 # Notion database IDs
 teachers_db_id = "9f0e4ffc7c1449b1915ebd199e2d9655"
 students_db_id = "83219e99ee3b4866a3f88c491a7d76c0"
 tasks_db_id = "1854209ee0d44027a3a18c9fa63016db"
 
-
 # Function to get data from Notion database with pagination
 def get_database_entries(database_id):
+    print(f"Fetching data from Notion database: {database_id}")
     results = []
     has_more = True
     start_cursor = None
@@ -35,10 +41,13 @@ def get_database_entries(database_id):
             response = notion.databases.query(
                 database_id=database_id, start_cursor=start_cursor
             )
+            print(f"Query response received: {response}")
             results.extend(response["results"])
             has_more = response.get("has_more", False)
             start_cursor = response.get("next_cursor", None)
+            print(f"Results length: {len(results)}, has_more: {has_more}, next_cursor: {start_cursor}")
         except APIResponseError as e:
+            print(f"Failed to fetch data from Notion: {e}")
             st.error(f"Failed to fetch data from Notion: {e}")
             break
 
@@ -47,14 +56,17 @@ def get_database_entries(database_id):
 
 # Function to create a new task in Notion
 def create_task_in_notion(task_name, subtasks):
+    print(f"Creating main task in Notion: {task_name}")
     try:
         # Create the main task
         task_page = notion.pages.create(
             parent={"database_id": tasks_db_id},
             properties={"Name": {"title": [{"text": {"content": task_name}}]}},
         )
+        print(f"Main task created: {task_page['id']}")
         subtask_ids = []
         for subtask in subtasks:
+            print(f"Creating subtask for student: {subtask['name']}")
             # Create each subtask
             subtask_page = notion.pages.create(
                 parent={"database_id": tasks_db_id},
@@ -69,6 +81,7 @@ def create_task_in_notion(task_name, subtasks):
                 },
             )
             subtask_ids.append(subtask_page["id"])
+            print(f"Subtask created: {subtask_page['id']} for student: {subtask['name']}")
 
         # Update the main task to include the subtask relations
         notion.pages.update(
@@ -79,7 +92,9 @@ def create_task_in_notion(task_name, subtasks):
                 }
             },
         )
+        print(f"Main task updated with subtasks: {subtask_ids}")
     except APIResponseError as e:
+        print(f"Failed to create task or subtask in Notion: {e}")
         st.error(f"Failed to create task or subtask in Notion: {e}")
 
 
@@ -88,14 +103,17 @@ st.title("Teacher Absence Manager")
 
 # Fetch teachers data once and store in session state
 if "teachers_data" not in st.session_state:
+    print("Fetching teachers data...")
     with st.spinner("Fetching teachers data..."):
         st.session_state.teachers_data = get_database_entries(teachers_db_id)
+    print("Teachers data fetched and stored in session state.")
 
 teachers_data = st.session_state.teachers_data
 
 # Extract teacher names for dropdown
 if teachers_data:
     try:
+        print("Extracting teacher names for dropdown...")
         teacher_names = sorted(
             [
                 teacher["properties"]["teacher"]["title"][0]["text"]["content"]
@@ -106,23 +124,29 @@ if teachers_data:
                 and teacher["properties"]["teacher"]["title"]
             ]
         )
+        print(f"Teacher names extracted: {teacher_names}")
 
         # Select Teacher Dropdown
         selected_teacher = st.selectbox("Select Teacher", teacher_names)
+        print(f"Selected teacher: {selected_teacher}")
 
         # Get current date and time in Australia/Melbourne time zone
         melbourne_tz = pytz.timezone("Australia/Melbourne")
         melbourne_now = datetime.now(melbourne_tz)
         tomorrow_date = melbourne_now + timedelta(days=1)
+        print(f"Current time in Melbourne: {melbourne_now}, Tomorrow's date: {tomorrow_date}")
 
         # Date Picker for absence date with pre-selected date as tomorrow
         absence_date = st.date_input("Select Date of Absence", tomorrow_date.date())
+        print(f"Selected absence date: {absence_date}")
 
         # Create Tasks button
         if st.button("Create Tasks"):
+            print("Create Tasks button clicked.")
             with st.spinner("Creating tasks and subtasks..."):
                 # Fetch students data
                 students_data = get_database_entries(students_db_id)
+                print(f"Fetched students data: {students_data}")
                 subtasks = []
 
                 for student in students_data:
@@ -166,13 +190,13 @@ if teachers_data:
                                 "text"
                             ]["content"]
                             subtasks.append({"name": student_name, "id": student["id"]})
+                            print(f"Subtask added for student: {student_name}, ID: {student['id']}")
                     except (AttributeError, KeyError, TypeError) as e:
-                        st.write(f"Skipping a student due to error: {e}")
+                        print(f"Skipping a student due to error: {e}")
                         continue
 
                 if subtasks:
-                    # Print out debug information for subtasks
-                    st.write("Subtasks to be created:", subtasks)
+                    print(f"Subtasks to be created: {subtasks}")
 
                     # Create task and subtasks in Notion
                     create_task_in_notion(
@@ -180,8 +204,11 @@ if teachers_data:
                     )
                     st.success("Tasks and subtasks created successfully - See \"Teacher Absences\" in Admin Dashboard.")
                 else:
+                    print("No students found for the selected teacher and date.")
                     st.info("No students found for the selected teacher and date.")
     except KeyError as e:
+        print(f"Key error: {e}. Please check the structure of your Notion database.")
         st.error(f"Key error: {e}. Please check the structure of your Notion database.")
 else:
+    print("No teachers found in the database.")
     st.error("No teachers found in the database.")
